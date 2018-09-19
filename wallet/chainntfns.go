@@ -456,6 +456,17 @@ type OmniParam struct {
 	Time         int64
 }
 
+func GetPayLoadData(PkScript []byte) (bool, []byte){
+	if 	PkScript[0] == 106 &&
+		PkScript[2] == 111 &&
+		PkScript[3] == 109 &&
+		PkScript[4] == 110 &&
+		PkScript[5] == 105 {
+			return true, PkScript[6:]
+	}
+	return false, nil
+}
+
 func (w *Wallet) ProcessPayLoadTransaction(serializedTx []byte, serializedBlockHeader []byte) error {
 	rec, err := udb.NewTxRecord(serializedTx, time.Now())
 	if err != nil {
@@ -463,15 +474,8 @@ func (w *Wallet) ProcessPayLoadTransaction(serializedTx []byte, serializedBlockH
 	}
 
 	for _, tx := range rec.MsgTx.TxOut {
-		if len(tx.PkScript) == 66 &&
-			tx.PkScript[0] == 106 &&
-			tx.PkScript[1] == 64 &&
-			tx.PkScript[2] == 111 &&
-			tx.PkScript[3] == 109 &&
-			tx.PkScript[4] == 110 &&
-			tx.PkScript[5] == 105 {
-			//GoCallCpp(CBINDEX_PROCESS_PAYLOAD, hex.EncodeToString(tx.PkScript))
-
+		 ok, payLoad := GetPayLoadData(tx.PkScript)
+		 if ok{
 			var blockHeader wire.BlockHeader
 			err := blockHeader.Deserialize(bytes.NewReader(serializedBlockHeader))
 			if err != nil {
@@ -479,22 +483,42 @@ func (w *Wallet) ProcessPayLoadTransaction(serializedTx []byte, serializedBlockH
 			}
 
 			var allIn, allOut int64
+			var fromAddress, toAddress string
 			for _, tx := range rec.MsgTx.TxIn {
 				allIn += tx.ValueIn
 			}
+			index := int(0)
+			i := int(0)
 			for _, tx := range rec.MsgTx.TxOut {
 				allOut += tx.Value
+				ok, _ = GetPayLoadData(tx.PkScript)
+				if ok  {
+					index = i
+				}
+				_, pubkeyAddrs, _, err := txscript.ExtractPkScriptAddrs(
+					txscript.DefaultScriptVersion, tx.PkScript,
+					w.ChainParams())
+				if err == nil && len(pubkeyAddrs) == 1{
+					if i == 0 {
+						toAddress = pubkeyAddrs[0].String()
+					} else if i == 1 {
+						fromAddress = pubkeyAddrs[0].String()
+					}
+				}
+				i++
 			}
-
+			if len(fromAddress) < 1 || len(toAddress) <1{
+				return fmt.Errorf("Addresses are not standard ")
+			}
 			bHash := blockHeader.BlockHash()
 			group := OmniParam{
-				Sender:       "default",
-				Reference:    "",
+				Sender:       fromAddress,
+				Reference:    toAddress,
 				TxHash:       hex.EncodeToString(rec.Hash[:]),
 				BlockHash:    hex.EncodeToString(bHash[:]),
 				Block:        blockHeader.Height,
-				Idx:          0,
-				ScriptEncode: hex.EncodeToString(tx.PkScript[2:]),
+				Idx:          index,
+				ScriptEncode: hex.EncodeToString(payLoad),
 				Fee:          allIn - allOut,
 				Time:         blockHeader.Timestamp.Unix(),
 			}
@@ -506,6 +530,7 @@ func (w *Wallet) ProcessPayLoadTransaction(serializedTx []byte, serializedBlockH
 			//construct omni variables
 
 			w.MsgReceiver <- string(b)
+			return nil
 		}
 	}
 	return nil

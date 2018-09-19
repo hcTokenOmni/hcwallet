@@ -11,7 +11,6 @@ package main
 import "C"
 import (
 	"fmt"
-	"github.com/HcashOrg/hcd/hcjson"
 	"github.com/HcashOrg/hcwallet/rpc/legacyrpc"
 	"github.com/HcashOrg/hcwallet/wallet"
 	"strings"
@@ -150,23 +149,29 @@ func cbCreateRawTransaction(text string, w *wallet.Wallet) (string, error) {
 
 	conSet := strings.Split(con, ";;;")
 	fmt.Println(conSet)
-	var fromAddr, payLoad []byte
+	var fromAddr, payLoad, toAddress []byte
 	for i := 0; i < len(conSet); i++ {
 		item := strings.Split(conSet[i], "===")
 		if len(item) == 2 {
 			if item[0] == "fromaddress" {
 				fromAddr = []byte(item[1])
-			} else if item[0] == "payload" {
+			}  else if item[0] == "toaddress" {
+				toAddress = []byte(item[1])
+			}else if item[0] == "payload" {
 				payLoad = []byte(item[1])
 			}
 		}
 	}
 	fmt.Println(fromAddr)
 	fmt.Println(payLoad)
-
-	cmd := &hcjson.SendToAddressCmd{
-		Address: string(fromAddr),
-		Amount:  100,
+	if len(toAddress) ==0{
+		toAddress = fromAddr
+	}
+	cmd := &legacyrpc.SendFromAddressToAddressCmd{
+		FromAddress: string(fromAddr),
+		ToAddress: string(toAddress),
+		ChangeAddress:string(fromAddr),
+		Amount:  50,
 	}
 	fmt.Println(cmd)
 
@@ -185,8 +190,10 @@ func GoCallCppInit(recieve <-chan string) {
 		select {
 		case value, ok := <-recieve:
 			if !ok {
+				fmt.Println("GoCallCppInit 000000000000")
 				return
 			}
+			fmt.Println("GoCallCppInit 1111111111111")
 			fmt.Println(value)
 			GoCallCpp(CBINDEX_PROCESS_PAYLOAD, value)
 		}
